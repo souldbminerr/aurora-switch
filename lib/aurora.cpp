@@ -376,14 +376,14 @@ void end_frame() noexcept {
     webgpu::gpu_prof::after_submit();
     if (canPresent && g_surface) {
       ZoneScopedN("Present");
-      wgpu::ConvertibleStatus status = wgpu::Status::Error;
+      wgpu::Status status = wgpu::Status::Error;
       {
         window::SurfaceLock surfaceLock;
         if (window::is_presentable()) {
-          status = g_surface.Present();
+          status = static_cast<wgpu::Status>(g_surface.Present());
         }
       }
-      if (status) {
+      if (status == wgpu::Status::Success) {
         gfx::after_present();
       } else {
         Log.warn("Surface present failed");

@@ -8,6 +8,10 @@
 #include <SDL3/SDL_video.h>
 #endif
 
+#if defined(SDL_PLATFORM_SWITCH)
+#include <switch.h>
+#endif
+
 namespace aurora::webgpu {
 namespace utils {
 
@@ -27,7 +31,11 @@ std::shared_ptr<wgpu::ChainedStruct> SetupWindowAndGetSurfaceDescriptor(SDL_Wind
   std::shared_ptr<wgpu::SurfaceSourceWindowsHWND> desc = std::make_shared<wgpu::SurfaceSourceWindowsHWND>();
   desc->hwnd = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
   desc->hinstance = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_WIN32_INSTANCE_POINTER, nullptr);
-  return std::move(desc);
+  #elif defined(SDL_PLATFORM_SWITCH)
+  (void)props;
+  auto desc = std::make_shared<wgpu::SurfaceSourceSwitchNWindow>();
+  desc->window = nwindowGetDefault();
+  return desc;
 #elif defined(SDL_PLATFORM_LINUX)
   const char* driver = SDL_GetCurrentVideoDriver();
   if (SDL_strcmp(driver, "wayland") == 0) {

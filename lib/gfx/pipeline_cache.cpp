@@ -20,6 +20,9 @@
 #include <mutex>
 #include <optional>
 #include <thread>
+#ifdef __SWITCH__
+#include <pthread.h>
+#endif
 
 #include <SDL3/SDL_iostream.h>
 #include <absl/container/flat_hash_map.h>
@@ -67,7 +70,17 @@ constexpr size_t BuildPipelinesPerFrame = 5;
 #else
 constexpr size_t BuildPipelinesPerFrame = 1;
 #endif
+#ifdef __SWITCH__
+static void pipeline_worker();
+static pthread_t g_pipelineThread;
+static bool g_pipelineThreadStarted = false;
+static void* pipeline_worker_trampoline(void*) {
+  pipeline_worker();
+  return nullptr;
+}
+#else
 static std::thread g_pipelineThread;
+#endif
 static std::atomic_bool g_pipelineThreadEnd = false;
 static std::condition_variable g_pipelineQueueCv;
 static std::condition_variable g_pipelineReadyCv;
@@ -1126,7 +1139,23 @@ void initialize_pipeline_cache() {
     g_hasPipelineThread = false;
   } else {
     g_hasPipelineThread = true;
+#ifdef __SWITCH__
+    {
+      pthread_attr_t attr;
+      pthread_attr_init(&attr);
+      pthread_attr_setstacksize(&attr, 8u * 1024u * 1024u);
+      g_pipelineThreadStarted = (pthread_create(&g_pipelineThread, &attr,
+                                                pipeline_worker_trampoline,
+                                                nullptr) == 0);
+      pthread_attr_destroy(&attr);
+      if (!g_pipelineThreadStarted) {
+        Log.error("Pipeline worker thread creation failed; using synchronous compile");
+        g_hasPipelineThread = false;
+      }
+    }
+#else
     g_pipelineThread = std::thread(pipeline_worker);
+#endif
   }
 
   const size_t loadedCount = load_pipeline_cache();
@@ -1144,7 +1173,14 @@ void shutdown_pipeline_cache() {
     g_pipelineThreadEnd = true;
     g_pipelineQueueCv.notify_all();
     g_pipelineReadyCv.notify_all();
+#ifdef __SWITCH__
+    if (g_pipelineThreadStarted) {
+      pthread_join(g_pipelineThread, nullptr);
+      g_pipelineThreadStarted = false;
+    }
+#else
     g_pipelineThread.join();
+#endif
   }
   g_hasPipelineThread = false;
 
