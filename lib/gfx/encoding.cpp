@@ -1,6 +1,7 @@
 #include "encoding.hpp"
 
 #include "frame.hpp"
+#include "resource_cache.hpp"
 
 #include "clear.hpp"
 #include "depth_peek.hpp"
@@ -108,6 +109,7 @@ void execute_encoder_task(wgpu::CommandEncoder& cmd, FramePacket& frame, const E
 void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, RenderPass& passInfo) {
   ZoneScoped;
   g_currentPipeline = UINTPTR_MAX;
+  reset_encoder_bind_cache();
 #ifdef AURORA_GFX_DEBUG_GROUPS
   std::vector<std::string> lastDebugGroupStack;
 #endif
@@ -161,6 +163,7 @@ void render_pass(const wgpu::RenderPassEncoder& pass, FramePacket& frame, Render
     case CommandType::CustomDraw: {
       render_custom_draw(cmd.data.customDraw, pass, passInfo);
       g_currentPipeline = UINTPTR_MAX;
+      reset_encoder_bind_cache();
       pass.SetBindGroup(0, resources().staticBindGroup);
       pass.SetBindGroup(2, gx::g_emptyTextureBindGroup);
       if (hasViewport) {
@@ -417,5 +420,36 @@ bool bind_pipeline(PipelineRef ref, const wgpu::RenderPassEncoder& pass) {
   pass.SetPipeline(pipeline);
   g_currentPipeline = ref;
   return true;
+}
+
+namespace {
+BindGroupRef g_boundTextureGroup = 0;
+bool g_haveBoundTexture = false;
+uint32_t g_blendDstAlpha = UINT32_MAX;
+bool g_haveBlendConstant = false;
+} // namespace
+
+void bind_texture_group(const wgpu::RenderPassEncoder& pass, BindGroupRef ref) {
+  if (g_haveBoundTexture && g_boundTextureGroup == ref) {
+    return;
+  }
+  pass.SetBindGroup(2, find_bind_group(ref));
+  g_boundTextureGroup = ref;
+  g_haveBoundTexture = true;
+}
+
+void set_blend_constant_for_dst_alpha(const wgpu::RenderPassEncoder& pass, uint32_t dstAlpha) {
+  if (g_haveBlendConstant && g_blendDstAlpha == dstAlpha) {
+    return;
+  }
+  const wgpu::Color color{0.f, 0.f, 0.f, dstAlpha / 255.f};
+  pass.SetBlendConstant(&color);
+  g_blendDstAlpha = dstAlpha;
+  g_haveBlendConstant = true;
+}
+
+void reset_encoder_bind_cache() noexcept {
+  g_haveBoundTexture = false;
+  g_haveBlendConstant = false;
 }
 } // namespace aurora::gfx

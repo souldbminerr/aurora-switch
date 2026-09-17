@@ -21,6 +21,9 @@ typedef struct {
   uint32_t createdPipelines;
   uint32_t drawCallCount;
   uint32_t mergedDrawCallCount;
+  uint32_t bindGroupRebuilds;
+  uint32_t pipelineRebuilds;
+  uint32_t uniformRebuilds;
   uint32_t lastVertSize;
   uint32_t lastUniformSize;
   uint32_t lastIndexSize;

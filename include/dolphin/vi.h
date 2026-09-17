@@ -46,6 +46,13 @@ void VICenterWindow();
 void VISetFrameBufferScale(float scale);
 
 /**
+ * Locks the internal framebuffer to an exact height in pixels. Width follows
+ * the window aspect through the same fit as the scale path. Pass 0 to clear
+ * the lock and return to scale/auto behavior.
+ */
+void VISetFrameBufferHeight(uint32_t height);
+
+/**
  * \brief Lock the GX framebuffer to a specific aspect ratio, without changing the native framebuffer.
  *
  * @param width Width part of the aspect ratio fraction.

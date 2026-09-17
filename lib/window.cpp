@@ -44,6 +44,7 @@ constexpr Module Log{"aurora::window"};
 SDL_Window* g_window;
 SDL_Renderer* g_renderer;
 float g_frameBufferScale = 0.f;
+uint32_t g_explicitFbHeight = 0;
 bool g_frameBufferAspectFit = false;
 AuroraWindowSize g_windowSize;
 std::vector<AuroraEvent> g_events;
@@ -454,7 +455,12 @@ AuroraWindowSize get_window_size() {
 
   int fb_w = native_fb_w;
   int fb_h = native_fb_h;
-  if (g_frameBufferScale > 0.f) {
+  if (g_explicitFbHeight > 0) {
+    fb_h = static_cast<int>(g_explicitFbHeight);
+    if (native_fb_w > 0 && native_fb_h > 0) {
+      fb_w = std::max(1, static_cast<int>(std::lround(static_cast<float>(g_explicitFbHeight) * static_cast<float>(native_fb_w) / static_cast<float>(native_fb_h))));
+    }
+  } else if (g_frameBufferScale > 0.f) {
     const auto [baseW, baseH] = vi::configured_fb_size();
     const auto [scaledW, scaledH] =
         scale_frame_buffer_to_aspect(static_cast<int>(baseW), static_cast<int>(baseH), g_frameBufferScale,
@@ -567,11 +573,21 @@ void request_frame_buffer_resize() {
   }
 }
 
+void set_frame_buffer_height(uint32_t height) {
+  if (g_explicitFbHeight == height) {
+    return;
+  }
+  g_explicitFbHeight = height;
+  request_frame_buffer_resize();
+}
+
 void set_frame_buffer_scale(float scale) {
   if (scale < 0.f) {
     scale = 0.f;
   }
-  if (g_frameBufferScale == scale) {
+  const bool hadExplicitSize = (g_explicitFbHeight != 0);
+  g_explicitFbHeight = 0;
+  if (g_frameBufferScale == scale && !hadExplicitSize) {
     return;
   }
   g_frameBufferScale = scale;

@@ -399,6 +399,7 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
   const bool pipelineValid = cache.hasPipeline && (state.dirty & DirtyPipeline) == 0 && cache.fmt == fmt &&
                              cache.lineMode == lineMode && cache.config.msaaSamples == gfx::get_sample_count();
   if (!pipelineValid) {
+    gfx::detail::note_pipeline_rebuild();
     const bool hadPipeline = cache.hasPipeline;
     const auto prevSampledTextures = cache.shaderInfo.sampledTextures;
     const auto prevSampledIndTextures = cache.shaderInfo.sampledIndTextures;
@@ -419,18 +420,43 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
       (state.dirty & DirtyTextures) == 0 && cache.bindGeneration == texture::current_bind_generation();
   if (!bindGroupsValid) {
     const auto prevBindGroup = cache.bindGroups.textureBindGroup;
+    const bool texRegsDirty = (state.dirty & DirtyTextures) != 0;
+    const void* boundBefore[MaxTextures] = {};
+    if (!texRegsDirty) {
+      for (u32 i = 0; i < MaxTextures; ++i) {
+        if (cache.shaderInfo.sampledTextures[i] || cache.shaderInfo.sampledIndTextures[i]) {
+          boundBefore[i] = g_gxState.textures[i].ref.get();
+        }
+      }
+    }
     resolve_sampled_textures(cache.shaderInfo);
-    cache.bindGroups = build_bind_groups(cache.shaderInfo);
-    cache.bindGeneration = texture::current_bind_generation();
-    state.dirty &= ~DirtyTextures;
-    // For texture_size_bias uniform
-    if (cache.bindGroups.textureBindGroup != prevBindGroup) {
-      state.dirty |= DirtyUniform;
+    bool boundSame = !texRegsDirty;
+    if (boundSame) {
+      for (u32 i = 0; i < MaxTextures; ++i) {
+        if ((cache.shaderInfo.sampledTextures[i] || cache.shaderInfo.sampledIndTextures[i]) &&
+            g_gxState.textures[i].ref.get() != boundBefore[i]) {
+          boundSame = false;
+          break;
+        }
+      }
+    }
+    if (boundSame) {
+      cache.bindGeneration = texture::current_bind_generation();
+    } else {
+      gfx::detail::note_bind_group_rebuild();
+      cache.bindGroups = build_bind_groups(cache.shaderInfo);
+      cache.bindGeneration = texture::current_bind_generation();
+      state.dirty &= ~DirtyTextures;
+      // For texture_size_bias uniform
+      if (cache.bindGroups.textureBindGroup != prevBindGroup) {
+        state.dirty |= DirtyUniform;
+      }
     }
   }
 
   const bool uniformValid = (state.dirty & DirtyUniform) == 0 && cache.uniformRange.size != 0;
   if (!uniformValid) {
+    gfx::detail::note_uniform_rebuild();
     cache.uniformRange = build_uniform(cache.shaderInfo);
     state.dirty &= ~DirtyUniform;
   }

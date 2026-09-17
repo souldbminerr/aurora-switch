@@ -5,6 +5,7 @@
 #include "hash.hpp"
 #include "../gx/pipeline.hpp"
 #include "../io.hpp"
+#include "../thread.hpp"
 #ifdef AURORA_ENABLE_RMLUI
 #include "../rmlui/pipeline.hpp"
 #endif
@@ -75,6 +76,9 @@ static void pipeline_worker();
 static pthread_t g_pipelineThread;
 static bool g_pipelineThreadStarted = false;
 static void* pipeline_worker_trampoline(void*) {
+#ifdef __SWITCH__
+  thread::set_current(thread::Options{.affinity = thread::Affinity::Render});
+#endif
   pipeline_worker();
   return nullptr;
 }

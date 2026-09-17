@@ -11,7 +11,12 @@
 namespace aurora::thread {
 
 enum class Priority { Low, Normal, High };
-enum class Affinity { None, SharedCache };
+enum class Affinity {
+  None,
+  SharedCache,
+  Logic,
+  Render,
+};
 
 struct Options {
   std::string name;

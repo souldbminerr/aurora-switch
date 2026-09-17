@@ -15,6 +15,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <mutex>
 #include <cstring>
 #include <list>
 #include <optional>
@@ -121,6 +122,7 @@ absl::flat_hash_map<u32, TlutObjectCache> s_tlutObjectCaches;
 absl::flat_hash_map<TextureContentKey, ContentCacheEntry> s_contentCache;
 absl::flat_hash_map<SourceKeyCacheKey, SourceKeyCacheEntry> s_sourceKeyCache;
 absl::flat_hash_map<uint64_t, absl::flat_hash_set<u32>> s_replacementUsers;
+std::recursive_mutex s_textureCacheMutex;
 std::list<TextureContentKey> s_contentLru;
 uint64_t s_contentCacheBytes = 0;
 uint64_t s_contentCacheBudgetBytes = texture::ContentCacheBudgetBytes;
@@ -139,6 +141,7 @@ constexpr bool BuildSourceKeyForDebug = false;
 constexpr uint32_t div_ceil(uint32_t value, uint32_t divisor) noexcept { return (value + divisor - 1) / divisor; }
 
 void do_clear_static_texture_cache() noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   s_textureObjectCaches.clear();
   s_replacementUsers.clear();
   for (auto& [_, cache] : s_tlutObjectCaches) {
@@ -147,6 +150,7 @@ void do_clear_static_texture_cache() noexcept {
 }
 
 void apply_pending_invalidations() noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   const uint64_t pendingCacheClears = s_pendingCacheClears.exchange(0, std::memory_order_acq_rel);
   const uint64_t pendingInvalidations = s_pendingInvalidations.exchange(0, std::memory_order_acq_rel);
   if (pendingCacheClears != 0) {
@@ -168,6 +172,7 @@ DynamicPaletteKey make_dynamic_palette_key(const GXTexObj_& obj, const GXState::
 }
 
 void clear_texture_dependency(u32 texObjId, u32 tlutObjId, uint64_t replacementId) {
+  std::lock_guard lock{s_textureCacheMutex};
   if (texObjId == 0) {
     return;
   }
@@ -191,11 +196,13 @@ void clear_texture_dependency(u32 texObjId, u32 tlutObjId, uint64_t replacementI
 }
 
 void clear_texture_dependency(u32 texObjId, const CachedTextureEntry& entry) {
+  std::lock_guard lock{s_textureCacheMutex};
   clear_texture_dependency(texObjId, entry.tlutObjId, entry.replacementId);
 }
 
 void store_cached_texture(const GXTexObj_& obj, gfx::TextureHandle handle, u32 tlutObjId = 0, u32 tlutDataVersion = 0,
                           uint64_t replacementId = 0) {
+  std::lock_guard lock{s_textureCacheMutex};
   if (obj.texObjId == 0) {
     return;
   }
@@ -223,11 +230,13 @@ void store_cached_texture(const GXTexObj_& obj, gfx::TextureHandle handle, u32 t
 }
 
 void touch_content_cache(ContentCacheEntry& entry) {
+  std::lock_guard lock{s_textureCacheMutex};
   s_contentLru.splice(s_contentLru.begin(), s_contentLru, entry.lruIt);
   entry.lruIt = s_contentLru.begin();
 }
 
 gfx::TextureHandle find_content_texture(const TextureContentKey& key) {
+  std::lock_guard lock{s_textureCacheMutex};
   const auto it = s_contentCache.find(key);
   if (it == s_contentCache.end()) {
     return {};
@@ -245,6 +254,7 @@ uint64_t texture_handle_size(const gfx::TextureHandle& handle) noexcept {
 }
 
 void cache_content_texture(TextureContentKey key, const gfx::TextureHandle& handle) {
+  std::lock_guard lock{s_textureCacheMutex};
   const uint64_t bytes = texture_handle_size(handle);
   if (!handle || bytes == 0 || bytes > s_contentCacheBudgetBytes) {
     return;
@@ -279,6 +289,7 @@ struct TextureKeys {
 };
 
 TextureKeys hash_texture_source(const GXTexObj_& obj, const GXTlutObj_* tlut, bool buildSourceKey) {
+  std::lock_guard lock{s_textureCacheMutex};
   ZoneScoped;
   const size_t textureBytes = texture::texture_source_size(obj.format(), obj.width(), obj.height(), obj.mip_count());
   CHECK(obj.has_data() && textureBytes != 0, "invalid texture source for content hash");
@@ -371,6 +382,7 @@ TextureKeys hash_texture_source(const GXTexObj_& obj, const GXTlutObj_* tlut, bo
 }
 
 gfx::TextureHandle get_tlut_texture(const GXTlutObj_& tlut) {
+  std::lock_guard lock{s_textureCacheMutex};
   if (tlut.tlutObjId != 0) {
     auto& cache = s_tlutObjectCaches[tlut.tlutObjId];
     cache.lastUsedFrame = s_frameCount;
@@ -402,6 +414,7 @@ gfx::TextureHandle get_tlut_texture(const GXTlutObj_& tlut) {
 
 gfx::TextureHandle resolve_dynamic_palette_texture(const GXTexObj_& obj, const GXState::CopyTextureRef& source,
                                                    const GXTlutObj_& tlut) {
+  std::lock_guard lock{s_textureCacheMutex};
   ZoneScoped;
 
   const auto tlutHandle = get_tlut_texture(tlut);
@@ -439,6 +452,7 @@ u32 resolved_format_for_handle(const gfx::TextureHandle& handle) {
 }
 
 void touch_bound_texture(const GXTexObj_& obj) {
+  std::lock_guard lock{s_textureCacheMutex};
   if (auto it = s_textureObjectCaches.find(obj.texObjId); it != s_textureObjectCaches.end()) {
     it->second.lastUsedFrame = s_frameCount;
     if (it->second.tlutObjId != 0) {
@@ -466,6 +480,7 @@ void touch_bound_texture(const GXTexObj_& obj) {
 }
 
 void sweep_object_caches() {
+  std::lock_guard lock{s_textureCacheMutex};
   const auto expired = [](uint64_t lastUsedFrame) {
     return s_frameCount > lastUsedFrame && s_frameCount - lastUsedFrame > texture::ObjectCacheIdleFrames;
   };
@@ -574,6 +589,7 @@ uint64_t current_bind_generation() noexcept {
 }
 
 void invalidate_replacement(uint64_t replacementId) noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   const auto users = s_replacementUsers.find(replacementId);
   if (users == s_replacementUsers.end()) {
     return;
@@ -593,6 +609,7 @@ void invalidate_replacement(uint64_t replacementId) noexcept {
 }
 
 gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
+  std::lock_guard lock{s_textureCacheMutex};
   ZoneScoped;
 
   if (obj.texObjId != 0) {
@@ -643,6 +660,7 @@ gfx::TextureHandle resolve_static_texture(const GXTexObj_& obj) {
 }
 
 gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GXTlutObj_& tlut) {
+  std::lock_guard lock{s_textureCacheMutex};
   ZoneScoped;
 
   if (obj.texObjId != 0) {
@@ -699,6 +717,7 @@ gfx::TextureHandle resolve_static_palette_texture(const GXTexObj_& obj, const GX
 }
 
 void end_frame() noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   const auto streamingStats = gfx::texture_replacement::process_streaming();
   s_stats.pendingLoads = streamingStats.pendingLoads;
   s_stats.publishes = streamingStats.publishes;
@@ -721,10 +740,13 @@ void end_frame() noexcept {
   s_stats.publishBytes = streamingStats.publishBytes;
   ++s_frameCount;
   apply_pending_invalidations();
-  sweep_object_caches();
+  if ((s_frameCount & 3) == 0) {
+    sweep_object_caches();
+  }
 }
 
 void shutdown() noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   s_textureObjectCaches.clear();
   s_tlutObjectCaches.clear();
   s_replacementUsers.clear();
@@ -741,6 +763,7 @@ void shutdown() noexcept {
 }
 
 void set_content_cache_budget_for_testing(uint64_t bytes) noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   s_contentCacheBudgetBytes = bytes;
   while (s_contentCacheBytes > s_contentCacheBudgetBytes && !s_contentLru.empty()) {
     const auto cacheIt = s_contentCache.find(s_contentLru.back());
@@ -756,6 +779,7 @@ void set_content_cache_budget_for_testing(uint64_t bytes) noexcept {
 } // namespace texture
 
 void evict_texture_object(u32 texObjId) noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   if (const auto it = s_textureObjectCaches.find(texObjId); it != s_textureObjectCaches.end()) {
     const CachedTextureEntry entry = it->second;
     s_textureObjectCaches.erase(it);
@@ -771,6 +795,7 @@ void evict_texture_object(u32 texObjId) noexcept {
 }
 
 void evict_tlut_object(u32 tlutObjId) noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   if (const auto it = s_tlutObjectCaches.find(tlutObjId); it != s_tlutObjectCaches.end()) {
     for (const u32 texObjId : it->second.staticTextureUsers) {
       if (const auto textureIt = s_textureObjectCaches.find(texObjId); textureIt != s_textureObjectCaches.end()) {
@@ -790,6 +815,7 @@ void evict_tlut_object(u32 tlutObjId) noexcept {
 }
 
 void clear_copy_texture_cache() noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   g_gxState.copyTextures.clear();
   g_gxState.copyTextureCache.clear();
   for (auto& [_, cache] : s_tlutObjectCaches) {
@@ -801,6 +827,7 @@ void clear_copy_texture_cache() noexcept {
 void clear_static_texture_cache() noexcept { s_pendingCacheClears.fetch_add(1, std::memory_order_release); }
 
 void evict_copy_texture(const void* dest) noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   absl::flat_hash_set<const void*> sourceIdentities;
   if (const auto it = g_gxState.copyTextures.find(dest); it != g_gxState.copyTextures.end()) {
     if (it->second.handle) {
@@ -835,6 +862,7 @@ void evict_copy_texture(const void* dest) noexcept {
 }
 
 void resolve_sampled_textures(const ShaderInfo& info) noexcept {
+  std::lock_guard lock{s_textureCacheMutex};
   ZoneScoped;
   apply_pending_invalidations();
 

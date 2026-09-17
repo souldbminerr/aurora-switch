@@ -16,6 +16,8 @@
 #if defined(__linux__)
 #include <pthread.h>
 #include <sched.h>
+#elif defined(__SWITCH__)
+#include <switch.h>
 #elif defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -234,6 +236,12 @@ std::optional<CacheDomain> find_cache_domain() { return std::nullopt; }
 bool apply_cache_domain(const CacheDomain&) noexcept { return false; }
 #endif
 
+#if defined(__SWITCH__)
+bool apply_switch_affinity(uint32_t mask, int32_t preferred) noexcept {
+  return R_SUCCEEDED(::svcSetThreadCoreMask(::threadGetCurHandle(), preferred, mask));
+}
+#endif
+
 void pin_shared_cache() noexcept {
   std::lock_guard lock{sDomainMutex};
   if (!sDomainConfigured) {
@@ -290,9 +298,19 @@ void set_current(const Options& options) noexcept {
   }
 
   SDL_SetCurrentThreadPriority(to_sdl_priority(options.priority));
+#if defined(__SWITCH__)
+  if (options.affinity == Affinity::Logic) {
+    apply_switch_affinity(0x3u, 0);
+  } else if (options.affinity == Affinity::Render) {
+    apply_switch_affinity(0x4u, 2);
+  } else if (options.affinity == Affinity::SharedCache) {
+    pin_shared_cache();
+  }
+#else
   if (options.affinity == Affinity::SharedCache) {
     pin_shared_cache();
   }
+#endif
 }
 
 } // namespace aurora::thread

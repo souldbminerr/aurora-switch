@@ -155,6 +155,7 @@ void render(const DrawData& data, const wgpu::RenderPassEncoder& pass, const wgp
   }
 
   pass.SetBlendConstant(&data.color);
+  reset_encoder_bind_cache();
   pass.SetViewport(0.f, 0.f, static_cast<float>(targetSize.width), static_cast<float>(targetSize.height), data.depth,
                    data.depth);
   pass.SetScissorRect(0, 0, targetSize.width, targetSize.height);

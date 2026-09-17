@@ -451,6 +451,16 @@ RecordedFrame record_frame(const webgpu::Viewport& presentViewport) noexcept {
   if (g_context == nullptr) {
     return {};
   }
+  bool anyVisible = false;
+  for (int i = 0; i < g_context->GetNumDocuments(); ++i) {
+    if (auto* doc = g_context->GetDocument(i); doc != nullptr && doc->IsVisible()) {
+      anyVisible = true;
+      break;
+    }
+  }
+  if (!anyVisible) {
+    return {};
+  }
 
   ZoneScoped;
   const Rml::Vector2i dim = dimensions_from_viewport(presentViewport);

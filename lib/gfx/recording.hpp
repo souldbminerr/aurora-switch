@@ -18,6 +18,9 @@ void begin_recording(FramePacket& packet, size_t frameSlot);
 RecordedFrame end_recording();
 void shutdown_recording();
 void increment_merged_draw_count() noexcept;
+void note_bind_group_rebuild() noexcept;
+void note_pipeline_rebuild() noexcept;
+void note_uniform_rebuild() noexcept;
 
 namespace testing {
 void suppress_render_worker(bool suppress) noexcept;

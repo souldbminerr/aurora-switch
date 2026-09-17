@@ -681,6 +681,9 @@ void end_frame(EndFrameCallback callback) {
     packet = {};
     g_resources.stats.drawCallCount = stats.drawCallCount;
     g_resources.stats.mergedDrawCallCount = stats.mergedDrawCallCount;
+    g_resources.stats.bindGroupRebuilds = stats.bindGroupRebuilds;
+    g_resources.stats.pipelineRebuilds = stats.pipelineRebuilds;
+    g_resources.stats.uniformRebuilds = stats.uniformRebuilds;
     g_resources.stats.lastVertSize = stats.lastVertSize;
     g_resources.stats.lastUniformSize = stats.lastUniformSize;
     g_resources.stats.lastIndexSize = stats.lastIndexSize;

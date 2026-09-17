@@ -44,6 +44,9 @@ struct FrameRecorder {
   uint32_t currentRenderPass = UINT32_MAX;
   uint32_t drawCallCount = 0;
   uint32_t mergedDrawCallCount = 0;
+  uint32_t bindGroupRebuilds = 0;
+  uint32_t pipelineRebuilds = 0;
+  uint32_t uniformRebuilds = 0;
   bool inOffscreen = false;
   std::optional<RenderPass> suspendedEfbPass;
   Viewport suspendedEfbViewport;
@@ -537,6 +540,9 @@ void begin_recording(FramePacket& packet, size_t frameSlot) {
   g_passSnapshotPools[frameSlot].used = 0;
   g_recorder.drawCallCount = 0;
   g_recorder.mergedDrawCallCount = 0;
+  g_recorder.bindGroupRebuilds = 0;
+  g_recorder.pipelineRebuilds = 0;
+  g_recorder.uniformRebuilds = 0;
   g_recorder.suspendedEfbPass.reset();
 
   current_render_passes().emplace_back();
@@ -560,6 +566,9 @@ RecordedFrame end_recording() {
   auto& frame = g_recorder.frame();
   frame.stats.drawCallCount = g_recorder.drawCallCount;
   frame.stats.mergedDrawCallCount = g_recorder.mergedDrawCallCount;
+  frame.stats.bindGroupRebuilds = g_recorder.bindGroupRebuilds;
+  frame.stats.pipelineRebuilds = g_recorder.pipelineRebuilds;
+  frame.stats.uniformRebuilds = g_recorder.uniformRebuilds;
   frame.stats.lastVertSize = frame.verts.size();
   frame.stats.lastUniformSize = frame.uniforms.size();
   frame.stats.lastIndexSize = frame.indices.size();
@@ -617,6 +626,24 @@ void seed_offscreen_cache(uint32_t width, uint32_t height, wgpu::TextureFormat c
 void increment_merged_draw_count() noexcept {
   if (g_recorder.active()) {
     ++g_recorder.mergedDrawCallCount;
+  }
+}
+
+void note_bind_group_rebuild() noexcept {
+  if (g_recorder.active()) {
+    ++g_recorder.bindGroupRebuilds;
+  }
+}
+
+void note_pipeline_rebuild() noexcept {
+  if (g_recorder.active()) {
+    ++g_recorder.pipelineRebuilds;
+  }
+}
+
+void note_uniform_rebuild() noexcept {
+  if (g_recorder.active()) {
+    ++g_recorder.uniformRebuilds;
   }
 }
 
