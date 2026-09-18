@@ -16,6 +16,7 @@ enum class Affinity {
   SharedCache,
   Logic,
   Render,
+  Compile,
 };
 
 struct Options {

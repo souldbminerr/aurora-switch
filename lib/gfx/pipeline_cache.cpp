@@ -78,7 +78,7 @@ static pthread_t g_pipelineThread;
 static bool g_pipelineThreadStarted = false;
 static void* pipeline_worker_trampoline(void*) {
 #ifdef __SWITCH__
-  thread::set_current(thread::Options{.affinity = thread::Affinity::Render});
+  thread::set_current(thread::Options{.affinity = thread::Affinity::Compile});
 #endif
   pipeline_worker();
   return nullptr;

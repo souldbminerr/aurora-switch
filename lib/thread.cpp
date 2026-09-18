@@ -303,6 +303,8 @@ void set_current(const Options& options) noexcept {
     apply_switch_affinity(0x3u, 0);
   } else if (options.affinity == Affinity::Render) {
     apply_switch_affinity(0x4u, 2);
+  } else if (options.affinity == Affinity::Compile) {
+    apply_switch_affinity(0x2u, 1);
   } else if (options.affinity == Affinity::SharedCache) {
     pin_shared_cache();
   }
