@@ -17,6 +17,7 @@
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
+#include <system_error>
 #include <limits>
 #include <mutex>
 #include <optional>
@@ -744,15 +745,34 @@ static bool prepare_pipeline_cache_db() {
     return true;
   }
 
-  const auto path = io::fs_path_to_string(io::fs_path_from_string(g_config.cachePath) / "pipeline_cache.db");
+  const auto dbPath = io::fs_path_from_string(g_config.cachePath) / "pipeline_cache.db";
+  const auto path = io::fs_path_to_string(dbPath);
+  {
+    std::error_code ec;
+    const bool dirExistsBefore = std::filesystem::exists(dbPath.parent_path(), ec);
+    std::filesystem::create_directories(dbPath.parent_path(), ec);
+    Log.debug("pipeline cache dir existed={} mkdir ec={}", dirExistsBefore, ec.message());
+  }
+#ifdef __SWITCH__
+  sqlite::register_switch_vfs();
+  auto ret = sqlite3_open_v2(path.c_str(), &g_pipelineCacheDb,
+                             SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_PRIVATECACHE,
+                             "switch");
+#else
   auto ret = sqlite3_open(path.c_str(), &g_pipelineCacheDb);
+#endif
   if (ret != SQLITE_OK) {
-    Log.error("Failed to open pipeline cache database: {}", sqlite3_errmsg(g_pipelineCacheDb));
+    Log.error("Failed to open pipeline cache database: {} (xerr={})", sqlite3_errmsg(g_pipelineCacheDb),
+                sqlite3_extended_errcode(g_pipelineCacheDb));
     pipeline_cache_abort();
     return false;
   }
 
+#ifdef __SWITCH__
+  ret = sqlite::exec(g_pipelineCacheDb, "PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL;");
+#else
   ret = sqlite::exec(g_pipelineCacheDb, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+#endif
   if (ret != SQLITE_OK) {
     Log.error("Failed to set pipeline cache pragmas: {}", sqlite3_errmsg(g_pipelineCacheDb));
     pipeline_cache_abort();

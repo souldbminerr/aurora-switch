@@ -10,12 +10,14 @@
 #include "regs.hpp"
 #include "shader_info.hpp"
 #include "texture.hpp"
+#include "../gfx/hash.hpp"
 
 #include <tracy/Tracy.hpp>
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <span>
 #include <vector>
 
@@ -140,7 +142,113 @@ struct DrawCache {
   FogRangeLutKey fogRangeKey{};
   bool hasFogRange = false;
   GXVtxFmt lastDrawFmt = GX_MAX_VTXFMT;
+  bool runSingle = false;
+  uint64_t runVertHash = 0;
+  size_t runVertSize = 0;
+  GXPrimitive lastPrim = GX_TRIANGLES;
 };
+
+extern DrawCache sDrawCache;
+constexpr size_t kUniformHeadBytes = 80;
+constexpr size_t kInstanceMatrixBytes = size_t{gx::InstanceMatrixBytes};
+
+static bool try_instance_draw(GXPrimitive prim, bool fmtMatch, const uint8_t* vertBytes, size_t vertSize,
+                              uint64_t vertHash, GXPrimitive prevPrim, uint64_t prevVertHash,
+                              size_t prevVertSize, bool prevSingle) noexcept {
+  ZoneScoped;
+  if (prim != GX_TRIANGLES && prim != GX_QUADS) {
+    return false;
+  }
+  if (!fmtMatch || prim != prevPrim || !prevSingle) {
+    return false;
+  }
+  if (vertHash != prevVertHash || vertSize != prevVertSize) {
+    return false;
+  }
+  auto& cache = sDrawCache;
+  auto* prev = gfx::get_last_draw_command<DrawData>();
+  if (prev == nullptr || prev->instanceCount < 1 || prev->instanceCount >= gx::MaxInstancesPerDraw) {
+    return false;
+  }
+  if ((g_gxState.dirty & DirtyPipeline) != 0 || cache.pipelineRef != prev->pipeline) {
+    return false;
+  }
+  if (cache.config.shaderConfig.fogRangeEnabled) {
+    return false;
+  }
+  if ((g_gxState.dirty & DirtyTextures) != 0) {
+    return false;
+  }
+  if (cache.bindGeneration != texture::current_bind_generation()) {
+    return false;
+  }
+  if (cache.bindGroups.textureBindGroup != prev->bindGroups.textureBindGroup) {
+    return false;
+  }
+  if (g_gxState.vtxDesc[GX_VA_PNMTXIDX] == GX_DIRECT &&
+      g_gxState.currentPnMtx != prev->immediateData.currentPnMtx) {
+    return false;
+  }
+  for (int i = GX_VA_POS; i <= GX_VA_TEX7; ++i) {
+    if (g_gxState.vtxDesc[i] == GX_INDEX8 || g_gxState.vtxDesc[i] == GX_INDEX16) {
+      const auto& array = g_gxState.arrays[i];
+      if (array.cachedRange.size == 0 ||
+          array.cachedRange.offset != prev->immediateData.arrayStart[i - GX_VA_POS]) {
+        return false;
+      }
+    }
+  }
+  if (prim == GX_QUADS) {
+    if (prev->idxRange.size == 0) {
+      return false;
+    }
+  } else if (prev->idxRange.size != 0) {
+    return false;
+  }
+  const ShaderInfo scratchInfo = build_shader_info(cache.config.shaderConfig);
+  static ByteBuffer scratchUni;
+  scratchUni.clear();
+  fill_uniform_bytes(scratchUni, scratchInfo);
+  if (scratchUni.size() < kUniformHeadBytes + kInstanceMatrixBytes) {
+    return false;
+  }
+  if (scratchUni.size() != prev->uniformRange.size) {
+    return false;
+  }
+  const uint8_t* staging = gfx::uniform_staging_data();
+  const size_t stagingSize = gfx::uniform_staging_size();
+  if (prev->uniformRange.offset + prev->uniformRange.size > stagingSize) {
+    return false;
+  }
+  const uint8_t* prevUni = staging + prev->uniformRange.offset;
+  const uint8_t* curUni = scratchUni.data();
+  const size_t tailSize = scratchUni.size() - kUniformHeadBytes - kInstanceMatrixBytes;
+  if (memcmp(curUni, prevUni, kUniformHeadBytes) != 0) {
+    return false;
+  }
+  if (memcmp(curUni + kUniformHeadBytes + kInstanceMatrixBytes, prevUni + kUniformHeadBytes + kInstanceMatrixBytes,
+             tailSize) != 0) {
+    return false;
+  }
+  if (prev->instanceCount == 1) {
+    static uint8_t prevMtx[gx::InstanceMatrixBytes];
+    memcpy(prevMtx, prevUni + kUniformHeadBytes, kInstanceMatrixBytes);
+    PipelineConfig instCfg = cache.config;
+    instCfg.shaderConfig.instanced = true;
+    const gfx::PipelineRef instRef = gfx::pipeline_ref(instCfg);
+    const gfx::Range chunk = gfx::push_uniform(prevMtx, kInstanceMatrixBytes);
+    gfx::append_uniform_bytes(curUni + kUniformHeadBytes, kInstanceMatrixBytes);
+    prev->pipeline = instRef;
+    prev->instanceCount = 2;
+    prev->instanceRange = {chunk.offset, uint32_t(kInstanceMatrixBytes * 2)};
+  } else {
+    gfx::append_uniform_bytes(curUni + kUniformHeadBytes, kInstanceMatrixBytes);
+    prev->instanceCount += 1;
+    prev->instanceRange.size += uint32_t(kInstanceMatrixBytes);
+  }
+  gfx::detail::increment_merged_draw_count();
+  return true;
+}
 DrawCache sDrawCache;
 
 FogRangeLutKey fog_range_lut_key() noexcept {
@@ -523,13 +631,42 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, ByteReader& 
   if (totalVtxBytes > reader.remaining())
     UNLIKELY { handle_draw_overrun(totalVtxBytes, reader); }
 
-  const bool cleanState = g_gxState.dirty == 0 && fmt == sDrawCache.lastDrawFmt && sDrawCache.lineMode == 0 &&
-                          prim != GX_LINES && prim != GX_LINESTRIP && prim != GX_POINTS;
+  const bool fmtMatch = fmt == sDrawCache.lastDrawFmt && sDrawCache.lineMode == 0 && prim != GX_LINES &&
+                          prim != GX_LINESTRIP && prim != GX_POINTS;
+  const bool cleanState = g_gxState.dirty == 0 && fmtMatch;
   auto* lastDraw = cleanState ? gfx::get_last_draw_command<DrawData>() : nullptr;
   const bool canMerge = lastDraw != nullptr && lastDraw->instanceCount == 1;
+  if (!canMerge) {
+    auto* prev = lastDraw != nullptr ? lastDraw : gfx::get_last_draw_command<DrawData>();
+    if (prev != nullptr && prev->instanceCount == 1) {
+      if (!fmtMatch) {
+        gfx::detail::note_merge_blocked_fmt();
+      } else if ((g_gxState.dirty & DirtyPipeline) != 0) {
+        gfx::detail::note_merge_blocked_pipeline();
+      } else if ((g_gxState.dirty & DirtyTextures) != 0) {
+        gfx::detail::note_merge_blocked_textures();
+      } else {
+        gfx::detail::note_merge_blocked_uniform_only();
+      }
+    }
+  }
 
-  // Push raw vertex data to buffer. Merged draws must remain contiguous with the previous range.
   const auto vertexData = reader.take(totalVtxBytes);
+  const uint64_t curVertHash = xxh3_hash_s(vertexData.data(), vertexData.size());
+  const GXPrimitive prevPrim = sDrawCache.lastPrim;
+  const uint64_t prevVertHash = sDrawCache.runVertHash;
+  const size_t prevVertSize = sDrawCache.runVertSize;
+  const bool prevSingle = sDrawCache.runSingle;
+  sDrawCache.lastPrim = prim;
+  sDrawCache.runVertHash = curVertHash;
+  sDrawCache.runVertSize = vertexData.size();
+
+  if (!canMerge &&
+      try_instance_draw(prim, fmtMatch, vertexData.data(), vertexData.size(), curVertHash, prevPrim,
+                        prevVertHash, prevVertSize, prevSingle)) {
+    return;
+  }
+
   gfx::Range vertRange = gfx::push_verts(vertexData.data(), vertexData.size(), canMerge ? 0 : 4);
 
   // Try to merge with previous draw call
@@ -564,10 +701,12 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, ByteReader& 
     lastDraw->vtxCount += vtxCount;
     lastDraw->indexCount += numIndices;
     gfx::detail::increment_merged_draw_count();
+    sDrawCache.runSingle = false;
     return;
   }
 
   handle_draw_unmerged(prim, fmt, vtxCount, vertRange);
+  sDrawCache.runSingle = true;
 }
 
 static void handle_draw(u8 cmd, ByteReader& reader) noexcept {
@@ -791,6 +930,7 @@ void clear_draw_cache() noexcept {
   sDrawCache.uniformRange = {};
   sDrawCache.fogRange = {};
   sDrawCache.hasFogRange = false;
+  sDrawCache.runSingle = false;
 }
 
 } // namespace aurora::gx::fifo

@@ -3,6 +3,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <filesystem>
 #include <vector>
 
@@ -104,14 +105,37 @@ static bool cache_init_core() {
 
   std::string file = io::fs_path_to_string(cache_path());
   Log.debug("Using dawn cache at {}", file);
+  {
+    std::error_code ec;
+    const bool dirExistsBefore = std::filesystem::exists(cache_path().parent_path(), ec);
+    std::filesystem::create_directories(cache_path().parent_path(), ec);
+  }
+#ifdef __SWITCH__
+  sqlite::register_switch_vfs();
+  auto ret = sqlite3_open_v2(file.c_str(), &db,
+                             SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_PRIVATECACHE,
+                             "switch");
+#else
   auto ret = sqlite3_open(file.c_str(), &db);
+#endif
   if (ret != SQLITE_OK) {
-    Log.error("Failed to open database: {}", sqlite3_errmsg(db));
+    Log.error("Failed to open database: {} (xerr={} errno={})", sqlite3_errmsg(db),
+                sqlite3_extended_errcode(db),
+#ifdef __SWITCH__
+                sqlite::last_switch_open_errno()
+#else
+                0
+#endif
+    );
     return false;
   }
 
   // WAL mode + NORMAL = no need for disk syncs, consistent but not durable is fine.
+#ifdef __SWITCH__
+  ret = sqlite::exec(db, "PRAGMA journal_mode=DELETE; PRAGMA synchronous=NORMAL;");
+#else
   ret = sqlite::exec(db, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+#endif
   if (ret != SQLITE_OK) {
     Log.error("Failed to set pragmas: {}", sqlite3_errmsg(db));
     return false;

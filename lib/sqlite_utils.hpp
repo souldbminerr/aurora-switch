@@ -6,6 +6,11 @@
 
 namespace aurora::sqlite {
 
+#ifdef __SWITCH__
+void register_switch_vfs();
+int last_switch_open_errno();
+#endif
+
 inline int exec(sqlite3* db, const char* sql) { return sqlite3_exec(db, sql, nullptr, nullptr, nullptr); }
 
 template <typename T>
@@ -30,7 +35,8 @@ public:
     const auto type = immediate ? "BEGIN IMMEDIATE" : "BEGIN";
     const auto ret = sqlite3_exec(m_db, type, nullptr, nullptr, nullptr);
     if (ret != SQLITE_OK) {
-      m_log.error("Failed to start transaction: {}", sqlite3_errmsg(m_db));
+      m_log.error("Failed to start transaction: {} (xerr={})", sqlite3_errmsg(m_db),
+                  sqlite3_extended_errcode(m_db));
       return;
     }
     m_active = true;

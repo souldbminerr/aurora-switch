@@ -870,6 +870,50 @@ auto lighting_func(const ShaderConfig& config, const ColorChannelConfig& cc, u8 
 absl::flat_hash_set<gfx::ShaderRef> s_seenShaders;
 } // namespace
 
+namespace {
+void rewrite_matrix_loads(std::string& src, const char* ubufArray, const char* base) {
+  const std::string needle = std::string("ubuf.") + ubufArray + "[";
+  size_t pos = 0;
+  while ((pos = src.find(needle, pos)) != std::string::npos) {
+    const size_t innerStart = pos + needle.size();
+    int depth = 1;
+    size_t end = innerStart;
+    while (end < src.size() && depth > 0) {
+      if (src[end] == '[') {
+        ++depth;
+      } else if (src[end] == ']') {
+        --depth;
+      }
+      ++end;
+    }
+    if (depth != 0) {
+      break;
+    }
+    const std::string inner = src.substr(innerStart, end - innerStart - 1);
+    const std::string replacement =
+        "inst_buf[instance_index * 30u + (" + std::string(base) + " + (" + inner + "))]";
+    src.replace(pos, end - pos, replacement);
+    pos += replacement.size();
+  }
+}
+
+void apply_instancing(std::string& src) {
+  const std::string vidxAnchor = "@builtin(vertex_index) vidx: u32";
+  const size_t vidxPos = src.find(vidxAnchor);
+  if (vidxPos != std::string::npos) {
+    src.insert(vidxPos + vidxAnchor.size(), ",\n    @builtin(instance_index) instance_index: u32");
+  }
+  const std::string ubufAnchor = "var<uniform> ubuf: Uniform;";
+  const size_t ubufPos = src.find(ubufAnchor);
+  if (ubufPos != std::string::npos) {
+    src.insert(ubufPos + ubufAnchor.size(),
+               "\n@group(1) @binding(1)\nvar<uniform> inst_buf: array<mat3x4f, 1320>;");
+  }
+  rewrite_matrix_loads(src, "postex_mtx", "0u");
+  rewrite_matrix_loads(src, "nrm_mtx", "20u");
+}
+} // namespace
+
 std::string build_shader_source(const ShaderConfig& config) noexcept {
   ZoneScoped;
   const auto hash = xxh3_hash(config);
@@ -1628,7 +1672,7 @@ std::string build_shader_source(const ShaderConfig& config) noexcept {
     fragmentFn += "\n    prev = vec4f(in.nrm, prev.a);";
   }
 
-  const auto shaderSource = fmt::format(R"""(
+  auto shaderSource = fmt::format(R"""(
 fn bswap32(v: u32, le: bool) -> u32 {{
   if (le) {{
     return v;
@@ -1998,6 +2042,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4f {{{6}{5}
 )""",
                                         uniBufAttrs, texBindings, vtxOutAttrs, vtxInAttrs, vtxXfrAttrs, fragmentFn,
                                         fragmentFnPre, vtxXfrAttrsPre, uniformPre);
+  if (config.instanced) {
+    apply_instancing(shaderSource);
+  }
   if (EnableDebugPrints) {
     Log.info("Generated shader (hash {:x}): {}", hash, shaderSource);
   }

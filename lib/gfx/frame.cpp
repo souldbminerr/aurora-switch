@@ -511,6 +511,54 @@ void initialize() {
     g_resources.uniformBindGroup = g_device.CreateBindGroup(&bindGroupDescriptor);
   }
 
+  {
+    constexpr std::array layoutEntries{
+        wgpu::BindGroupLayoutEntry{
+            .binding = 0,
+            .visibility = wgpu::ShaderStage::Vertex | wgpu::ShaderStage::Fragment,
+            .buffer =
+                wgpu::BufferBindingLayout{
+                    .type = wgpu::BufferBindingType::Uniform,
+                    .hasDynamicOffset = true,
+                },
+        },
+        wgpu::BindGroupLayoutEntry{
+            .binding = 1,
+            .visibility = wgpu::ShaderStage::Vertex,
+            .buffer =
+                wgpu::BufferBindingLayout{
+                    .type = wgpu::BufferBindingType::Uniform,
+                    .hasDynamicOffset = true,
+                },
+        },
+    };
+    const wgpu::BindGroupLayoutDescriptor layoutDesc{
+        .label = "Uniform bind group layout (instanced)",
+        .entryCount = layoutEntries.size(),
+        .entries = layoutEntries.data(),
+    };
+    g_resources.uniformBindGroupLayoutInstanced = g_device.CreateBindGroupLayout(&layoutDesc);
+    const std::array entries{
+        wgpu::BindGroupEntry{
+            .binding = 0,
+            .buffer = g_resources.uniformBuffer,
+            .size = gx::MaxUniformSize,
+        },
+        wgpu::BindGroupEntry{
+            .binding = 1,
+            .buffer = g_resources.uniformBuffer,
+            .size = gx::kInstanceWindowBytes,
+        },
+    };
+    const wgpu::BindGroupDescriptor bindGroupDescriptor{
+        .label = "Uniform bind group (instanced)",
+        .layout = g_resources.uniformBindGroupLayoutInstanced,
+        .entryCount = entries.size(),
+        .entries = entries.data(),
+    };
+    g_resources.uniformBindGroupInstanced = g_device.CreateBindGroup(&bindGroupDescriptor);
+  }
+
   gx::initialize();
 #ifdef AURORA_ENABLE_RMLUI
   rmlui::initialize_pipeline();
@@ -560,7 +608,9 @@ void shutdown() {
   g_resources.staticBindGroup = {};
   g_resources.staticBindGroupLayout = {};
   g_resources.uniformBindGroup = {};
+  g_resources.uniformBindGroupInstanced = {};
   g_resources.uniformBindGroupLayout = {};
+  g_resources.uniformBindGroupLayoutInstanced = {};
   g_frameIndex = UINT32_MAX;
   g_frameSlots.reset();
   g_stagingSlots.reset();
@@ -684,6 +734,10 @@ void end_frame(EndFrameCallback callback) {
     g_resources.stats.bindGroupRebuilds = stats.bindGroupRebuilds;
     g_resources.stats.pipelineRebuilds = stats.pipelineRebuilds;
     g_resources.stats.uniformRebuilds = stats.uniformRebuilds;
+    g_resources.stats.mergeBlockedFmt = stats.mergeBlockedFmt;
+    g_resources.stats.mergeBlockedPipeline = stats.mergeBlockedPipeline;
+    g_resources.stats.mergeBlockedTextures = stats.mergeBlockedTextures;
+    g_resources.stats.mergeBlockedUniformOnly = stats.mergeBlockedUniformOnly;
     g_resources.stats.lastVertSize = stats.lastVertSize;
     g_resources.stats.lastUniformSize = stats.lastUniformSize;
     g_resources.stats.lastIndexSize = stats.lastIndexSize;

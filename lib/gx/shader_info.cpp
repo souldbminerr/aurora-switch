@@ -1,5 +1,6 @@
 #include "shader_info.hpp"
 
+#include "../gfx/hash.hpp"
 #include "../gfx/recording.hpp"
 
 #include <cmath>
@@ -492,11 +493,36 @@ static void fill_uniform(ByteBuffer& buf, const ShaderInfo& info) noexcept {
   }
 }
 
+namespace {
+uint64_t sLastUniformHash = 0;
+size_t sLastUniformSize = 0;
+gfx::Range sLastUniformRange{};
+bool sHaveLastUniform = false;
+} // namespace
+
+void reset_uniform_dedup() noexcept {
+  sHaveLastUniform = false;
+}
+
+void fill_uniform_bytes(ByteBuffer& buf, const ShaderInfo& info) noexcept {
+  buf.clear();
+  fill_uniform(buf, info);
+}
+
 gfx::Range build_uniform(const ShaderInfo& info) noexcept {
   ZoneScoped;
   static ByteBuffer buf;
   buf.clear();
   fill_uniform(buf, info);
-  return gfx::push_uniform(buf.data(), buf.size());
+  const uint64_t hash = xxh3_hash_s(buf.data(), buf.size());
+  if (sHaveLastUniform && sLastUniformSize == buf.size() && sLastUniformHash == hash) {
+    return sLastUniformRange;
+  }
+  const gfx::Range range = gfx::push_uniform(buf.data(), buf.size());
+  sLastUniformHash = hash;
+  sLastUniformSize = buf.size();
+  sLastUniformRange = range;
+  sHaveLastUniform = true;
+  return range;
 }
 } // namespace aurora::gx

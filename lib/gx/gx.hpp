@@ -57,6 +57,10 @@ constexpr u32 MaxColorChannels = 4;
 constexpr u32 MaxTevRegs = 4; // TEVPREV, TEVREG0-2
 constexpr u32 MaxKColors = GX_MAX_KCOLOR;
 constexpr u32 MaxTexMtx = 10;
+inline constexpr u32 InstanceMatrixCount = 30;
+inline constexpr u32 InstanceMatrixBytes = InstanceMatrixCount * 48;
+inline constexpr u32 MaxInstancesPerDraw = 44;
+inline constexpr uint64_t kInstanceWindowBytes = uint64_t{MaxInstancesPerDraw} * InstanceMatrixBytes;
 constexpr u32 MaxPTTexMtx = 20;
 constexpr u32 MaxTexCoord = GX_MAX_TEXCOORD;
 constexpr u32 MaxVtxAttr = GX_VA_MAX_ATTR;
@@ -491,7 +495,8 @@ struct ShaderConfig {
   u8 vtxStride = 0;
   u8 lineMode : 2 = 0; // 1 = GX_LINES, 2 = GX_LINESTRIP, 3 = GX_POINTS
   u8 fogRangeEnabled : 1 = false;
-  u8 pad1 : 5 = 0;
+  u8 instanced : 1 = false; // per-instance matrices from instance buffer
+  u8 pad1 : 4 = 0;
   u8 pad2 = 0;
   std::array<AttrConfig, MaxVtxAttr> attrs;
   std::array<TevSwap, MaxTevSwap> tevSwapTable;

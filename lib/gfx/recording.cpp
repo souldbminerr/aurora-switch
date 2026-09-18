@@ -13,6 +13,7 @@
 #include "../gx/fifo.hpp"
 #include "../gx/gx.hpp"
 #include "../gx/pipeline.hpp"
+#include "../gx/shader_info.hpp"
 #ifdef AURORA_ENABLE_RMLUI
 #include "../rmlui/pipeline.hpp"
 #endif
@@ -47,6 +48,10 @@ struct FrameRecorder {
   uint32_t bindGroupRebuilds = 0;
   uint32_t pipelineRebuilds = 0;
   uint32_t uniformRebuilds = 0;
+  uint32_t mergeBlockedFmt = 0;
+  uint32_t mergeBlockedPipeline = 0;
+  uint32_t mergeBlockedTextures = 0;
+  uint32_t mergeBlockedUniformOnly = 0;
   bool inOffscreen = false;
   std::optional<RenderPass> suspendedEfbPass;
   Viewport suspendedEfbViewport;
@@ -540,9 +545,14 @@ void begin_recording(FramePacket& packet, size_t frameSlot) {
   g_passSnapshotPools[frameSlot].used = 0;
   g_recorder.drawCallCount = 0;
   g_recorder.mergedDrawCallCount = 0;
+  gx::reset_uniform_dedup();
   g_recorder.bindGroupRebuilds = 0;
   g_recorder.pipelineRebuilds = 0;
   g_recorder.uniformRebuilds = 0;
+  g_recorder.mergeBlockedFmt = 0;
+  g_recorder.mergeBlockedPipeline = 0;
+  g_recorder.mergeBlockedTextures = 0;
+  g_recorder.mergeBlockedUniformOnly = 0;
   g_recorder.suspendedEfbPass.reset();
 
   current_render_passes().emplace_back();
@@ -569,6 +579,10 @@ RecordedFrame end_recording() {
   frame.stats.bindGroupRebuilds = g_recorder.bindGroupRebuilds;
   frame.stats.pipelineRebuilds = g_recorder.pipelineRebuilds;
   frame.stats.uniformRebuilds = g_recorder.uniformRebuilds;
+  frame.stats.mergeBlockedFmt = g_recorder.mergeBlockedFmt;
+  frame.stats.mergeBlockedPipeline = g_recorder.mergeBlockedPipeline;
+  frame.stats.mergeBlockedTextures = g_recorder.mergeBlockedTextures;
+  frame.stats.mergeBlockedUniformOnly = g_recorder.mergeBlockedUniformOnly;
   frame.stats.lastVertSize = frame.verts.size();
   frame.stats.lastUniformSize = frame.uniforms.size();
   frame.stats.lastIndexSize = frame.indices.size();
@@ -644,6 +658,30 @@ void note_pipeline_rebuild() noexcept {
 void note_uniform_rebuild() noexcept {
   if (g_recorder.active()) {
     ++g_recorder.uniformRebuilds;
+  }
+}
+
+void note_merge_blocked_fmt() noexcept {
+  if (g_recorder.active()) {
+    ++g_recorder.mergeBlockedFmt;
+  }
+}
+
+void note_merge_blocked_pipeline() noexcept {
+  if (g_recorder.active()) {
+    ++g_recorder.mergeBlockedPipeline;
+  }
+}
+
+void note_merge_blocked_textures() noexcept {
+  if (g_recorder.active()) {
+    ++g_recorder.mergeBlockedTextures;
+  }
+}
+
+void note_merge_blocked_uniform_only() noexcept {
+  if (g_recorder.active()) {
+    ++g_recorder.mergeBlockedUniformOnly;
   }
 }
 
@@ -1147,6 +1185,22 @@ Range push_uniform(const uint8_t* data, size_t length) {
     return {};
   }
   return push(current_frame_packet().uniforms, data, length, resources().limits.minUniformBufferOffsetAlignment);
+}
+
+Range append_uniform_bytes(const uint8_t* data, size_t length) {
+  ZoneScoped;
+  if (!check_recording("append_uniform_bytes")) {
+    return {};
+  }
+  return push(current_frame_packet().uniforms, data, length, 0);
+}
+
+const uint8_t* uniform_staging_data() noexcept {
+  return current_frame_packet().uniforms.data();
+}
+
+size_t uniform_staging_size() noexcept {
+  return current_frame_packet().uniforms.size();
 }
 
 Range push_storage(const uint8_t* data, size_t length) {

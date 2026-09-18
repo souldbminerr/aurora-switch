@@ -21,6 +21,10 @@ void increment_merged_draw_count() noexcept;
 void note_bind_group_rebuild() noexcept;
 void note_pipeline_rebuild() noexcept;
 void note_uniform_rebuild() noexcept;
+void note_merge_blocked_fmt() noexcept;
+void note_merge_blocked_pipeline() noexcept;
+void note_merge_blocked_textures() noexcept;
+void note_merge_blocked_uniform_only() noexcept;
 
 namespace testing {
 void suppress_render_worker(bool suppress) noexcept;
@@ -79,6 +83,9 @@ Range push_indices(ArrayRef<T> data, size_t alignment) {
   return push_indices(reinterpret_cast<const uint8_t*>(data.data()), data.size() * sizeof(T), alignment);
 }
 Range push_uniform(const uint8_t* data, size_t length);
+Range append_uniform_bytes(const uint8_t* data, size_t length);
+const uint8_t* uniform_staging_data() noexcept;
+size_t uniform_staging_size() noexcept;
 template <typename T>
 Range push_uniform(const T& data) {
   return push_uniform(reinterpret_cast<const uint8_t*>(&data), sizeof(T));

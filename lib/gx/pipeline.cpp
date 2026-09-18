@@ -28,8 +28,13 @@ void render(const DrawData& data, const wgpu::RenderPassEncoder& pass) {
 
   const auto& resources = gfx::detail::resources();
   pass.SetImmediates(0, &data.immediateData, sizeof(data.immediateData));
-  const std::array offsets{data.uniformRange.offset};
-  pass.SetBindGroup(1, resources.uniformBindGroup, offsets.size(), offsets.data());
+  if (data.instanceCount > 1) {
+    const std::array offsets{data.uniformRange.offset, data.instanceRange.offset};
+    pass.SetBindGroup(1, resources.uniformBindGroupInstanced, offsets.size(), offsets.data());
+  } else {
+    const std::array offsets{data.uniformRange.offset};
+    pass.SetBindGroup(1, resources.uniformBindGroup, offsets.size(), offsets.data());
+  }
   if (data.bindGroups.textureBindGroup) {
     gfx::bind_texture_group(pass, data.bindGroups.textureBindGroup);
   }

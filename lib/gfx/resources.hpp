@@ -20,6 +20,8 @@ struct Resources {
   wgpu::BindGroup staticBindGroup;
   wgpu::BindGroupLayout uniformBindGroupLayout;
   wgpu::BindGroup uniformBindGroup;
+  wgpu::BindGroupLayout uniformBindGroupLayoutInstanced;
+  wgpu::BindGroup uniformBindGroupInstanced;
   wgpu::Limits limits;
   AuroraStats stats{};
 };

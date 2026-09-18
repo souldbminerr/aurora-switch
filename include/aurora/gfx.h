@@ -24,6 +24,10 @@ typedef struct {
   uint32_t bindGroupRebuilds;
   uint32_t pipelineRebuilds;
   uint32_t uniformRebuilds;
+  uint32_t mergeBlockedFmt;
+  uint32_t mergeBlockedPipeline;
+  uint32_t mergeBlockedTextures;
+  uint32_t mergeBlockedUniformOnly;
   uint32_t lastVertSize;
   uint32_t lastUniformSize;
   uint32_t lastIndexSize;
