@@ -22,6 +22,7 @@
 
 #include "input.hpp"
 #include "internal.hpp"
+#include "switch/saltynx.hpp"
 #include "thread.hpp"
 #include "window.hpp"
 
@@ -384,6 +385,7 @@ void end_frame() noexcept {
         }
       }
       if (status == wgpu::Status::Success) {
+        saltynx::on_present();
         gfx::after_present();
       } else {
         Log.warn("Surface present failed");

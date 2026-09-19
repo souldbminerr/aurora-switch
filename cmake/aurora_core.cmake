@@ -7,6 +7,7 @@ add_library(aurora_core STATIC
         lib/io.hpp
         lib/logging.cpp
         lib/system_info.cpp
+        lib/switch/saltynx.cpp
         lib/system_info.hpp
         lib/thread.cpp
         lib/thread.hpp

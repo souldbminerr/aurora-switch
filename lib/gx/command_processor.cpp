@@ -568,9 +568,7 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
         }
       }
     }
-    const uint64_t texT0 = now_us();
     resolve_sampled_textures(cache.shaderInfo);
-    note_tex_us(now_us() - texT0);
     bool boundSame = !texRegsDirty;
     if (boundSame) {
       for (u32 i = 0; i < MaxTextures; ++i) {

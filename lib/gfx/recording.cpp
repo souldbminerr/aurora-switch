@@ -732,7 +732,6 @@ void queue_texture_upload(TextureUpload upload) {
 
 void queue_texture_upload_data(const uint8_t* data, uint32_t bytesPerRow, uint32_t rowsPerImage,
                                wgpu::TexelCopyTextureInfo tex, wgpu::Extent3D size) {
-  const uint64_t texT0 = gx::fifo::now_us();
   const auto copyBytesPerRow = AURORA_ALIGN(bytesPerRow, 256);
   auto& frame = current_frame_packet();
   if (frame.textureUpload.size() + copyBytesPerRow * rowsPerImage <= TextureUploadSize) {
@@ -743,7 +742,6 @@ void queue_texture_upload_data(const uint8_t* data, uint32_t bytesPerRow, uint32
         .rowsPerImage = rowsPerImage,
     };
     queue_texture_upload(TextureUpload{layout, std::move(tex), size});
-    gx::fifo::note_tex_us(gx::fifo::now_us() - texT0);
     return;
   }
 
@@ -769,7 +767,6 @@ void queue_texture_upload_data(const uint8_t* data, uint32_t bytesPerRow, uint32
       .rowsPerImage = rowsPerImage,
   };
   queue_texture_upload(TextureUpload{layout, std::move(tex), size, std::move(buffer)});
-  gx::fifo::note_tex_us(gx::fifo::now_us() - texT0);
 }
 
 void queue_texture_copy(wgpu::TexelCopyTextureInfo src, wgpu::TexelCopyTextureInfo dst, wgpu::Extent3D size) {

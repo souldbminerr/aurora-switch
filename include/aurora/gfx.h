@@ -28,8 +28,6 @@ typedef struct {
   uint32_t mergeBlockedPipeline;
   uint32_t mergeBlockedTextures;
   uint32_t mergeBlockedUniformOnly;
-  uint32_t fifoWorkerUs;
-  uint32_t fifoTexUs;
   uint32_t lastVertSize;
   uint32_t lastUniformSize;
   uint32_t lastIndexSize;

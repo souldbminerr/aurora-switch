@@ -752,8 +752,6 @@ void end_frame(EndFrameCallback callback) {
     g_resources.stats.lastIndexSize = stats.lastIndexSize;
     g_resources.stats.lastStorageSize = stats.lastStorageSize;
     g_resources.stats.lastTextureUploadSize = stats.lastTextureUploadSize;
-    g_resources.stats.fifoWorkerUs = static_cast<uint32_t>(::aurora::gx::fifo::drained_worker_us());
-    g_resources.stats.fifoTexUs = static_cast<uint32_t>(::aurora::gx::fifo::drained_tex_us());
     if (callback) {
       callback(encoder, std::move(afterSubmitCallbacks));
     }

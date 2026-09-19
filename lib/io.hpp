@@ -12,6 +12,8 @@
 
 #include <SDL3/SDL_iostream.h>
 
+#include <aurora/io.hpp>
+
 namespace aurora::io {
 
 /** Converts a filesystem path to a UTF-8 string. */
@@ -74,6 +76,6 @@ private:
 
 AtomicFileWriter open_atomic_file(const std::filesystem::path& path,
                                   AtomicFileMode mode = AtomicFileMode::Truncate) noexcept;
-bool write_file_atomic(const std::filesystem::path& path, std::span<const uint8_t> data) noexcept;
+
 
 } // namespace aurora::io

@@ -3,7 +3,6 @@
 #include "../internal.hpp"
 #include "dolphin/gx/GXEnum.h"
 
-#include <cstdint>
 #include <cstring>
 
 namespace aurora::gx::fifo {
@@ -111,10 +110,7 @@ bool in_display_list();
 // Ensure all buffered commands have been processed.
 void drain();
 
-uint64_t now_us() noexcept;
-void note_tex_us(uint64_t us) noexcept;
-uint64_t drained_worker_us() noexcept;
-uint64_t drained_tex_us() noexcept;
+
 
 // Internal buffer inspection
 const uint8_t* get_buffer_data();

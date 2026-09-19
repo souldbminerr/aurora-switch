@@ -223,6 +223,8 @@ bool AtomicFileWriter::commit() noexcept {
     return false;
   }
 
+  SDL_RemovePath(m_targetPath.c_str());
+  SDL_ClearError();
   if (!SDL_RenamePath(m_temporaryPath.c_str(), m_targetPath.c_str())) {
     const std::string error{SDL_GetError()};
     discard();

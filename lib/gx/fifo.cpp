@@ -7,7 +7,6 @@
 #include <atomic>
 #include <cstring>
 #include <limits>
-#include <chrono>
 #include <mutex>
 
 #include <tracy/Tracy.hpp>
@@ -37,24 +36,6 @@ std::mutex sBufferMutex;
 std::atomic<uint32_t> sWorkerWake{0};
 thread::Thread sWorkerThread;
 std::atomic<DrawDoneCallback> sDrawDoneCallback{nullptr};
-std::atomic<uint64_t> g_workerBusyUs{0};
-std::atomic<uint64_t> g_texUs{0};
-uint64_t g_stashedWorkerUs = 0;
-uint64_t g_stashedTexUs = 0;
-
-uint64_t now_us() noexcept {
-  return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
-}
-
-struct ProcessTimer {
-  uint64_t t0 = now_us();
-  ~ProcessTimer() { g_workerBusyUs.fetch_add(now_us() - t0, std::memory_order_relaxed); }
-};
-
-inline void stash_timings() {
-  g_stashedWorkerUs = g_workerBusyUs.exchange(0, std::memory_order_relaxed);
-  g_stashedTexUs = g_texUs.exchange(0, std::memory_order_relaxed);
-}
 
 void dispatch_draw_done() noexcept {
   if (const auto callback = sDrawDoneCallback.load(std::memory_order_acquire); callback != nullptr) {
@@ -68,7 +49,6 @@ void wake_worker() noexcept {
 }
 
 void process_to(uint64_t target, std::memory_order order) noexcept {
-  ProcessTimer processTimer;
   uint64_t processed = sProcessed.load(std::memory_order_relaxed);
   while (processed < target) {
     ProcessResult result{};
@@ -257,7 +237,6 @@ bool in_display_list() { return detail::sInDisplayList; }
 
 void drain() {
   if (detail::sBufferSize == 0) {
-    stash_timings();
     return;
   }
 
@@ -290,16 +269,8 @@ void drain() {
     sStreamBase = target;
     detail::sBufferSize = 0;
   }
-  stash_timings();
   sPendingDraws = 0;
 }
-
-uint64_t now_us() noexcept {
-  return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
-}
-void note_tex_us(uint64_t us) noexcept { g_texUs.fetch_add(us, std::memory_order_relaxed); }
-uint64_t drained_worker_us() noexcept { return g_stashedWorkerUs; }
-uint64_t drained_tex_us() noexcept { return g_stashedTexUs; }
 
 const uint8_t* get_buffer_data() { return detail::sBufferData; }
 uint32_t get_buffer_size() { return detail::sBufferSize; }
