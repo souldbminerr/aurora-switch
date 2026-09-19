@@ -131,6 +131,7 @@ constexpr size_t MaxFogRangeLuts = 32;
 std::vector<FogRangeLutEntry> sFogRangeLuts;
 
 struct DrawCache {
+  uint64_t targetLayoutKey = 0;
   PipelineConfig config{};
   ShaderInfo shaderInfo{};
   gfx::PipelineRef pipelineRef{};
@@ -523,12 +524,14 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
   }
 
   const u8 lineMode = line_mode_for_prim(prim);
+  const auto targetLayoutKey = gfx::get_render_target_layout().key;
   const bool pipelineValid = cache.hasPipeline && (state.dirty & DirtyPipeline) == 0 && cache.fmt == fmt &&
-                             cache.lineMode == lineMode && cache.config.msaaSamples == gfx::get_sample_count();
+                             cache.lineMode == lineMode && cache.targetLayoutKey == targetLayoutKey;
   if (!pipelineValid) {
     PipelineConfig newConfig{};
     populate_pipeline_config(newConfig, prim, fmt);
-    if (std::memcmp(&newConfig, &cache.config, sizeof(PipelineConfig)) == 0) {
+    if (targetLayoutKey == cache.targetLayoutKey &&
+        std::memcmp(&newConfig, &cache.config, sizeof(PipelineConfig)) == 0) {
       cache.fmt = fmt;
       cache.lineMode = lineMode;
       state.dirty &= ~DirtyPipeline;
@@ -540,6 +543,7 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
       cache.config = newConfig;
       cache.shaderInfo = cached_shader_info(cache.config.shaderConfig);
       cache.pipelineRef = gfx::pipeline_ref(cache.config);
+      cache.targetLayoutKey = targetLayoutKey;
       cache.fmt = fmt;
       cache.lineMode = lineMode;
       cache.hasPipeline = true;
@@ -664,7 +668,7 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, ByteReader& 
   const bool fmtMatch = fmt == sDrawCache.lastDrawFmt && sDrawCache.lineMode == 0 && prim != GX_LINES &&
                           prim != GX_LINESTRIP && prim != GX_POINTS;
   if ((g_gxState.dirty & DirtyPipeline) != 0 && fmtMatch && sDrawCache.hasPipeline &&
-      sDrawCache.config.msaaSamples == gfx::get_sample_count()) {
+      sDrawCache.config.msaaSamples == gfx::sample_count()) {
     PipelineConfig probe{};
     populate_pipeline_config(probe, prim, fmt);
     if (std::memcmp(&probe, &sDrawCache.config, sizeof(PipelineConfig)) == 0) {
