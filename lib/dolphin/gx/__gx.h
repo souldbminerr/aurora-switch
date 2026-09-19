@@ -109,6 +109,9 @@ struct __GXData_struct {
   u8 tcsManEnab;    // bitmask: manual tex coord scale enabled per coord
   u32 suScis0;      // scissor top-left
   u32 suScis1;      // scissor bottom-right
+  int scissorBoxXOff; // GXSetScissorBoxOffset X (unbiased; folded in GXSetScissor)
+  int scissorBoxYOff; // GXSetScissorBoxOffset Y (unbiased; folded in GXSetScissor)
+  GXFBClamp copyClamp;  // EFB copy clamp (GXSetCopyClamp; backend TODO)
 
   u32 tref[8];      // TEV texture/color reference (2 stages per register)
   u32 iref;         // indirect texture reference

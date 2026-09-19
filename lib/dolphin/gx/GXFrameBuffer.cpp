@@ -176,7 +176,9 @@ void GXSetTexCopyDst(u16 wd, u16 ht, GXTexFmt fmt, GXBool mipmap) {
 }
 
 // TODO GXSetDispCopyFrame2Field
-// TODO GXSetCopyClamp
+void GXSetCopyClamp(GXFBClamp clamp) {
+  __gx->copyClamp = clamp;
+}
 
 u32 GXSetDispCopyYScale(f32 vscale) { return 0; }
 

@@ -442,6 +442,10 @@ void cache_prune() {
 }
 
 void cache_shutdown() {
+  // Same lock as load/store/prune: Dawn worker threads may still be inside a
+  // cache call while the device tears down; closing the DB under them is a
+  // use-after-close (fclose racing fseek) and kills the process.
+  std::lock_guard lock(cache_mutex);
 #if defined(AURORA_CACHE_USE_ZSTD)
   compress_buffer.clear();
 #endif

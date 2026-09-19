@@ -1,7 +1,9 @@
 #pragma once
 
 #include "../internal.hpp"
+#include "dolphin/gx/GXEnum.h"
 
+#include <cstdint>
 #include <cstring>
 
 namespace aurora::gx::fifo {
@@ -91,6 +93,8 @@ inline void write_f32(const float val) {
 void patch_u32(uint32_t offset, uint32_t val);
 
 // Marks a complete draw and publishes when the configured draw batch is full.
+bool submit_raw_draw(GXPrimitive prim, GXVtxFmt fmt, const uint8_t* vertices, uint16_t vtxCount,
+                     uint32_t vertexBytes);
 void finish_draw() noexcept;
 
 // Makes commands written so far available to the FIFO processor.
@@ -106,6 +110,11 @@ bool in_display_list();
 
 // Ensure all buffered commands have been processed.
 void drain();
+
+uint64_t now_us() noexcept;
+void note_tex_us(uint64_t us) noexcept;
+uint64_t drained_worker_us() noexcept;
+uint64_t drained_tex_us() noexcept;
 
 // Internal buffer inspection
 const uint8_t* get_buffer_data();

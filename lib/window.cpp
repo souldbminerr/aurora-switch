@@ -20,6 +20,9 @@
 #include <SDL3/SDL_stdinc.h>
 #include <SDL3/SDL_pixels.h>
 #include <tracy/Tracy.hpp>
+#if defined(__SWITCH__)
+#include <switch.h>
+#endif
 
 #if defined(SDL_PLATFORM_ANDROID)
 #include <jni.h>
@@ -452,6 +455,15 @@ AuroraWindowSize get_window_size() {
   AURORA_ASSERT(SDL_GetWindowSize(g_window, &width, &height), "Failed to get window size: {}", SDL_GetError());
   AURORA_ASSERT(SDL_GetWindowSizeInPixels(g_window, &native_fb_w, &native_fb_h), "Failed to get window size in pixels: {}",
          SDL_GetError());
+#if defined(__SWITCH__)
+  if (appletGetOperationMode() == AppletOperationMode_Console) {
+    native_fb_w = 1920;
+    native_fb_h = 1080;
+  } else {
+    native_fb_w = 1280;
+    native_fb_h = 720;
+  }
+#endif
 
   int fb_w = native_fb_w;
   int fb_h = native_fb_h;

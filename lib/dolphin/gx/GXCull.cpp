@@ -4,6 +4,10 @@
 extern "C" {
 
 void GXSetScissor(u32 left, u32 top, u32 width, u32 height) {
+  const s32 lf0 = static_cast<s32>(left) + __gx->scissorBoxXOff;
+  const s32 tp0 = static_cast<s32>(top) + __gx->scissorBoxYOff;
+  left = static_cast<u32>(lf0);
+  top = static_cast<u32>(tp0);
   const u32 tp = top + 342;
   const u32 lf = left + 342;
   const u32 bm = tp + height - 1;
@@ -19,7 +23,10 @@ void GXSetScissor(u32 left, u32 top, u32 width, u32 height) {
   __gx->bpSent = 1;
 }
 
-// TODO GXSetScissorBoxOffset
+void GXSetScissorBoxOffset(s32 x_off, s32 y_off) {
+  __gx->scissorBoxXOff = x_off;
+  __gx->scissorBoxYOff = y_off;
+}
 
 void GXSetCullMode(GXCullMode mode) {
   // Swap front/back to match hardware convention

@@ -9,6 +9,7 @@
 #include "pipeline.hpp"
 #include "regs.hpp"
 #include "shader_info.hpp"
+#include "fifo.hpp"
 #include "texture.hpp"
 #include "../gfx/hash.hpp"
 
@@ -19,6 +20,7 @@
 #include <cstdint>
 #include <cstring>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 namespace aurora::gx::fifo {
@@ -152,6 +154,23 @@ extern DrawCache sDrawCache;
 constexpr size_t kUniformHeadBytes = 80;
 constexpr size_t kInstanceMatrixBytes = size_t{gx::InstanceMatrixBytes};
 
+namespace {
+std::unordered_map<HashType, ShaderInfo> s_shaderInfoCache;
+ShaderInfo cached_shader_info(const ShaderConfig& config) noexcept {
+  const HashType hash = xxh3_hash_s(&config, sizeof(config), 0);
+  const auto it = s_shaderInfoCache.find(hash);
+  if (it != s_shaderInfoCache.end()) {
+    return it->second;
+  }
+  ShaderInfo info = build_shader_info(config);
+  if (s_shaderInfoCache.size() > 2048) {
+    s_shaderInfoCache.clear();
+  }
+  s_shaderInfoCache.emplace(hash, info);
+  return info;
+}
+} // namespace
+
 static bool try_instance_draw(GXPrimitive prim, bool fmtMatch, const uint8_t* vertBytes, size_t vertSize,
                               uint64_t vertHash, GXPrimitive prevPrim, uint64_t prevVertHash,
                               size_t prevVertSize, bool prevSingle) noexcept {
@@ -205,7 +224,7 @@ static bool try_instance_draw(GXPrimitive prim, bool fmtMatch, const uint8_t* ve
   } else if (prev->idxRange.size != 0) {
     return false;
   }
-  const ShaderInfo scratchInfo = build_shader_info(cache.config.shaderConfig);
+  const ShaderInfo scratchInfo = cached_shader_info(cache.config.shaderConfig);
   static ByteBuffer scratchUni;
   scratchUni.clear();
   fill_uniform_bytes(scratchUni, scratchInfo);
@@ -507,20 +526,28 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
   const bool pipelineValid = cache.hasPipeline && (state.dirty & DirtyPipeline) == 0 && cache.fmt == fmt &&
                              cache.lineMode == lineMode && cache.config.msaaSamples == gfx::get_sample_count();
   if (!pipelineValid) {
-    gfx::detail::note_pipeline_rebuild();
-    const bool hadPipeline = cache.hasPipeline;
-    const auto prevSampledTextures = cache.shaderInfo.sampledTextures;
-    const auto prevSampledIndTextures = cache.shaderInfo.sampledIndTextures;
-    populate_pipeline_config(cache.config, prim, fmt);
-    cache.shaderInfo = build_shader_info(cache.config.shaderConfig);
-    cache.pipelineRef = gfx::pipeline_ref(cache.config);
-    cache.fmt = fmt;
-    cache.lineMode = lineMode;
-    cache.hasPipeline = true;
-    state.dirty = (state.dirty & ~DirtyPipeline) | DirtyUniform;
-    if (!hadPipeline || prevSampledTextures != cache.shaderInfo.sampledTextures ||
-        prevSampledIndTextures != cache.shaderInfo.sampledIndTextures) {
-      cache.bindGeneration = 0;
+    PipelineConfig newConfig{};
+    populate_pipeline_config(newConfig, prim, fmt);
+    if (std::memcmp(&newConfig, &cache.config, sizeof(PipelineConfig)) == 0) {
+      cache.fmt = fmt;
+      cache.lineMode = lineMode;
+      state.dirty &= ~DirtyPipeline;
+    } else {
+      gfx::detail::note_pipeline_rebuild();
+      const bool hadPipeline = cache.hasPipeline;
+      const auto prevSampledTextures = cache.shaderInfo.sampledTextures;
+      const auto prevSampledIndTextures = cache.shaderInfo.sampledIndTextures;
+      cache.config = newConfig;
+      cache.shaderInfo = cached_shader_info(cache.config.shaderConfig);
+      cache.pipelineRef = gfx::pipeline_ref(cache.config);
+      cache.fmt = fmt;
+      cache.lineMode = lineMode;
+      cache.hasPipeline = true;
+      state.dirty = (state.dirty & ~DirtyPipeline) | DirtyUniform;
+      if (!hadPipeline || prevSampledTextures != cache.shaderInfo.sampledTextures ||
+          prevSampledIndTextures != cache.shaderInfo.sampledIndTextures) {
+        cache.bindGeneration = 0;
+      }
     }
   }
 
@@ -537,7 +564,9 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
         }
       }
     }
+    const uint64_t texT0 = now_us();
     resolve_sampled_textures(cache.shaderInfo);
+    note_tex_us(now_us() - texT0);
     bool boundSame = !texRegsDirty;
     if (boundSame) {
       for (u32 i = 0; i < MaxTextures; ++i) {
@@ -550,6 +579,7 @@ static void push_gx_draw(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, gfx::Rang
     }
     if (boundSame) {
       cache.bindGeneration = texture::current_bind_generation();
+      state.dirty &= ~DirtyTextures;
     } else {
       gfx::detail::note_bind_group_rebuild();
       cache.bindGroups = build_bind_groups(cache.shaderInfo);
@@ -633,6 +663,14 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, ByteReader& 
 
   const bool fmtMatch = fmt == sDrawCache.lastDrawFmt && sDrawCache.lineMode == 0 && prim != GX_LINES &&
                           prim != GX_LINESTRIP && prim != GX_POINTS;
+  if ((g_gxState.dirty & DirtyPipeline) != 0 && fmtMatch && sDrawCache.hasPipeline &&
+      sDrawCache.config.msaaSamples == gfx::get_sample_count()) {
+    PipelineConfig probe{};
+    populate_pipeline_config(probe, prim, fmt);
+    if (std::memcmp(&probe, &sDrawCache.config, sizeof(PipelineConfig)) == 0) {
+      g_gxState.dirty &= ~DirtyPipeline;
+    }
+  }
   const bool cleanState = g_gxState.dirty == 0 && fmtMatch;
   auto* lastDraw = cleanState ? gfx::get_last_draw_command<DrawData>() : nullptr;
   const bool canMerge = lastDraw != nullptr && lastDraw->instanceCount == 1;
@@ -652,16 +690,24 @@ static void draw_prim(GXPrimitive prim, GXVtxFmt fmt, u16 vtxCount, ByteReader& 
   }
 
   const auto vertexData = reader.take(totalVtxBytes);
-  const uint64_t curVertHash = xxh3_hash_s(vertexData.data(), vertexData.size());
   const GXPrimitive prevPrim = sDrawCache.lastPrim;
   const uint64_t prevVertHash = sDrawCache.runVertHash;
   const size_t prevVertSize = sDrawCache.runVertSize;
   const bool prevSingle = sDrawCache.runSingle;
   sDrawCache.lastPrim = prim;
-  sDrawCache.runVertHash = curVertHash;
   sDrawCache.runVertSize = vertexData.size();
+  uint64_t curVertHash = 0;
+  const bool hashPlausible = !canMerge && prevSingle && fmtMatch &&
+                             (prim == GX_TRIANGLES || prim == GX_QUADS) && prim == prevPrim &&
+                             vertexData.size() == prevVertSize;
+  if (hashPlausible) {
+    curVertHash = xxh3_hash_s(vertexData.data(), vertexData.size());
+    sDrawCache.runVertHash = curVertHash;
+  } else {
+    sDrawCache.runSingle = false;
+  }
 
-  if (!canMerge &&
+  if (hashPlausible &&
       try_instance_draw(prim, fmtMatch, vertexData.data(), vertexData.size(), curVertHash, prevPrim,
                         prevVertHash, prevVertSize, prevSingle)) {
     return;
